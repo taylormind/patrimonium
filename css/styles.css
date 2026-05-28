@@ -397,6 +397,45 @@
   color: #00D4A3;
 }
 
+/* ── LGPD consent checkbox ── */
+.auth-lgpd-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  line-height: 1.5;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.auth-lgpd-check input[type=checkbox] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  accent-color: var(--orange, #FF6500);
+  cursor: pointer;
+}
+.auth-link-inline {
+  color: var(--orange, #FF6500);
+  text-decoration: underline;
+  font-size: inherit;
+}
+.auth-link-inline:hover { color: var(--orange-light, #FF8534); }
+
+/* ── Auth success message ── */
+.auth-success {
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 212, 163, 0.1);
+  border: 1px solid rgba(0, 212, 163, 0.3);
+  color: #00D4A3;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.auth-success.hidden { display: none; }
+
 :root {
   /* Core palette */
   --black-void: #0A0A0A;

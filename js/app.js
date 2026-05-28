@@ -424,16 +424,29 @@
   }
 
   function renderAdmin() {
-    const auth = loadAuth();
-    if (!auth) return;
+    // Dados vêm do Supabase (_currentUser) — fallback para localStorage antigo
+    const supaUser  = _currentUser;
     const userEl    = document.getElementById('adminUserName');
     const emailEl   = document.getElementById('adminUserEmail');
     const createdEl = document.getElementById('adminUserCreated');
-    if (userEl)    userEl.textContent    = auth.user || '—';
-    if (emailEl)   emailEl.textContent   = auth.email || '—';
-    if (createdEl) {
-      const d = auth.createdAt ? new Date(auth.createdAt) : null;
-      createdEl.textContent = d ? d.toLocaleDateString('pt-BR') : '—';
+
+    if (supaUser) {
+      if (userEl)    userEl.textContent  = supaUser.user_metadata?.username || supaUser.email?.split('@')[0] || '—';
+      if (emailEl)   emailEl.textContent = supaUser.email || '—';
+      if (createdEl) {
+        const d = supaUser.created_at ? new Date(supaUser.created_at) : null;
+        createdEl.textContent = d ? d.toLocaleDateString('pt-BR') : '—';
+      }
+    } else {
+      // Legacy: dados do localStorage (migração)
+      const auth = loadAuth();
+      if (!auth) return;
+      if (userEl)    userEl.textContent    = auth.user || '—';
+      if (emailEl)   emailEl.textContent   = auth.email || '—';
+      if (createdEl) {
+        const d = auth.createdAt ? new Date(auth.createdAt) : null;
+        createdEl.textContent = d ? d.toLocaleDateString('pt-BR') : '—';
+      }
     }
   }
 
@@ -3402,19 +3415,27 @@
   }
 
   // ──────────────────────────────────────────────
-  // AUTH
+  // AUTH — Supabase
   // ──────────────────────────────────────────────
+
+  // Referência global ao cliente Supabase (declarado em supabase/client.js)
+  const sb = window._supabase;
+
+  // Usuário logado no momento
+  let _currentUser = null;
+
+  // Mantém compatibilidade: SHA-256 ainda usado para hashes locais se necessário
   async function sha256(text) {
     const buf = new TextEncoder().encode(text);
     const hash = await crypto.subtle.digest('SHA-256', buf);
     return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // Legacy helpers — mantidos para compatibilidade com backups antigos
   function loadAuth() {
     try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); }
     catch { return null; }
   }
-
   function saveAuth(creds) {
     localStorage.setItem(AUTH_KEY, JSON.stringify(creds));
   }
@@ -3493,23 +3514,16 @@
     }
   }
 
-  function doLogout() {
-    sessionStorage.removeItem(SESSION_KEY);
+  async function doLogout() {
     stopIdleWatcher();
-    const auth = loadAuth();
-    showAuthScreen();
-    setAuthTab(auth ? 'login' : 'create');
-    document.getElementById('authLoginUser').value = auth ? auth.user : '';
-    document.getElementById('authLoginPwd').value = '';
+    await sb.auth.signOut();
+    _currentUser = null;
+    // onAuthStateChange cuida de chamar showAuthScreen()
   }
 
-  // ── Troca de senha (painel Admin) ──
+  // ── Troca de senha (painel Admin) — via Supabase ──
   async function handleChangePwd(e) {
     e.preventDefault();
-    const auth = loadAuth();
-    if (!auth) return;
-
-    const oldPwd     = document.getElementById('cpOldPwd').value;
     const newPwd     = document.getElementById('cpNewPwd').value;
     const confirmPwd = document.getElementById('cpConfirmPwd').value;
     const msgEl      = document.getElementById('changePwdMsg');
@@ -3519,16 +3533,8 @@
       msgEl.textContent = text;
     }
 
-    // Valida senha atual
-    const oldHash = await sha256(oldPwd);
-    if (oldHash !== auth.pwd) {
-      showChangePwdMsg('error', 'Senha atual incorreta.');
-      return;
-    }
-
-    // Valida nova senha
-    if (newPwd.length < 4) {
-      showChangePwdMsg('error', 'A nova senha deve ter pelo menos 4 caracteres.');
+    if (newPwd.length < 6) {
+      showChangePwdMsg('error', 'A nova senha deve ter pelo menos 6 caracteres.');
       return;
     }
     if (newPwd !== confirmPwd) {
@@ -3536,12 +3542,16 @@
       return;
     }
 
-    const newHash = await sha256(newPwd);
-    saveAuth({ ...auth, pwd: newHash });
+    showChangePwdMsg('info', 'Salvando...');
+    const { error } = await sb.auth.updateUser({ password: newPwd });
+
+    if (error) {
+      showChangePwdMsg('error', 'Erro ao trocar senha: ' + error.message);
+      return;
+    }
 
     showChangePwdMsg('success', 'Senha alterada com sucesso!');
     document.getElementById('changePwdForm').reset();
-
     setTimeout(() => {
       document.getElementById('changePwdForm').classList.add('hidden');
       msgEl.classList.add('hidden');
@@ -3549,82 +3559,99 @@
     }, 2200);
   }
 
+  // ── Login via Supabase ──
   async function handleLoginSubmit(e) {
     e.preventDefault();
-    const user = document.getElementById('authLoginUser').value.trim();
-    const pwd  = document.getElementById('authLoginPwd').value;
-    const auth = loadAuth();
-    if (!auth) {
-      // Sem conta neste dispositivo (provavelmente acesso de outro navegador/celular)
-      showAuthError('authLoginError', 'Este dispositivo ainda não tem nenhuma conta cadastrada.');
-      document.getElementById('authNoAccountHelp')?.classList.remove('hidden');
-      return;
+    const email = document.getElementById('authLoginEmail').value.trim();
+    const pwd   = document.getElementById('authLoginPwd').value;
+    const btn   = e.target.querySelector('[type=submit]');
+
+    document.getElementById('authLoginError').classList.add('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Entrando...';
+
+    const { error } = await sb.auth.signInWithPassword({ email, password: pwd });
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-arrow-right-to-bracket"></i> Entrar';
+
+    if (error) {
+      showAuthError('authLoginError',
+        error.message.includes('Invalid login') || error.message.includes('invalid')
+          ? 'Email ou senha incorretos.'
+          : error.message
+      );
     }
-    document.getElementById('authNoAccountHelp')?.classList.add('hidden');
-    const hash = await sha256(pwd);
-    if (user === auth.user && hash === auth.pwd) {
-      sessionStorage.setItem(SESSION_KEY, '1');
-      startIdleWatcher();
-      initApp();
-    } else {
-      showAuthError('authLoginError', 'Usuário ou senha incorretos.');
-    }
+    // Se ok, onAuthStateChange chama initApp() automaticamente
   }
 
+  // ── Criar conta via Supabase ──
   async function handleCreateSubmit(e) {
     e.preventDefault();
-    const user = document.getElementById('authCreateUser').value.trim();
-    const pwd  = document.getElementById('authCreatePwd').value;
-    const pwd2 = document.getElementById('authCreatePwd2').value;
-    if (!user || pwd.length < 4) { showAuthError('authCreateError', 'Usuário obrigatório e senha mín. 4 caracteres.'); return; }
-    if (pwd !== pwd2)             { showAuthError('authCreateError', 'As senhas não conferem.'); return; }
-    const hash = await sha256(pwd);
-    saveAuth({ user, pwd: hash, email: RECOVERY_EMAIL, createdAt: new Date().toISOString() });
-    sessionStorage.setItem(SESSION_KEY, '1');
-    initApp();
+    const username = document.getElementById('authCreateUser').value.trim();
+    const email    = document.getElementById('authCreateEmail').value.trim();
+    const pwd      = document.getElementById('authCreatePwd').value;
+    const pwd2     = document.getElementById('authCreatePwd2').value;
+    const lgpd     = document.getElementById('authLgpdConsent').checked;
+    const btn      = e.target.querySelector('[type=submit]');
+
+    document.getElementById('authCreateError').classList.add('hidden');
+    document.getElementById('authCreateSuccess').classList.add('hidden');
+
+    if (!username)        { showAuthError('authCreateError', 'Informe um nome de usuário.'); return; }
+    if (!lgpd)            { showAuthError('authCreateError', 'Você precisa aceitar os termos LGPD para continuar.'); return; }
+    if (pwd.length < 6)   { showAuthError('authCreateError', 'A senha deve ter pelo menos 6 caracteres.'); return; }
+    if (pwd !== pwd2)     { showAuthError('authCreateError', 'As senhas não conferem.'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Criando conta...';
+
+    const { error } = await sb.auth.signUp({
+      email,
+      password: pwd,
+      options: {
+        data: { username, lgpd_consent: true }
+      }
+    });
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-user-plus"></i> Criar conta';
+
+    if (error) {
+      showAuthError('authCreateError', error.message);
+    } else {
+      showAuthSuccess('authCreateSuccess',
+        '<i class="fas fa-envelope"></i> Conta criada! Verifique seu email para confirmar o cadastro e depois faça login.'
+      );
+      e.target.reset();
+    }
   }
 
+  // ── Recuperação de senha via Supabase (envia email real) ──
   async function handleRecoverSubmit(e) {
     e.preventDefault();
-    const emailInput = document.getElementById('authRecoverEmail');
-    const email = emailInput.value.trim().toLowerCase();
-    const newPwdWrap  = document.getElementById('authRecoverNewPwdWrap');
-    const newPwdInput = document.getElementById('authRecoverNewPwd');
-    const submitBtn   = document.getElementById('authRecoverSubmit');
+    const email  = document.getElementById('authRecoverEmail').value.trim();
+    const btn    = document.getElementById('authRecoverSubmit');
 
-    if (email !== RECOVERY_EMAIL.toLowerCase()) {
-      showAuthError('authRecoverError', 'Email não cadastrado no app.');
-      return;
-    }
+    document.getElementById('authRecoverError').classList.add('hidden');
+    document.getElementById('authRecoverSuccess').classList.add('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
 
-    // Etapa 1: email confirmado → mostra campo de nova senha + abre mailto
-    if (newPwdWrap.classList.contains('hidden')) {
-      document.getElementById('authRecoverError').classList.add('hidden');
-      newPwdWrap.classList.remove('hidden');
-      submitBtn.innerHTML = '<i class="fas fa-key"></i> Redefinir senha';
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://taylormind.github.io/patrimonium/'
+    });
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar link de recuperação';
+
+    if (error) {
+      showAuthError('authRecoverError', 'Erro ao enviar email. Verifique o endereço informado.');
+    } else {
       showAuthSuccess('authRecoverSuccess',
-        `Instruções de recuperação enviadas para <strong>${RECOVERY_EMAIL}</strong>.<br>Defina uma nova senha abaixo para concluir.`
+        `<i class="fas fa-check-circle"></i> Email enviado para <strong>${email}</strong>!<br>Clique no link recebido para definir uma nova senha.`
       );
-      const subject = encodeURIComponent('Patrono — Recuperação de senha');
-      const body = encodeURIComponent(
-        `Olá,\n\nUma solicitação de recuperação de senha foi feita no Patrono em ${new Date().toLocaleString('pt-BR')}.\n\nSe foi você, defina uma nova senha diretamente na tela do app.\nSe não foi, ignore este email e considere trocar sua senha por precaução.\n\n— Patrono`
-      );
-      try { window.open(`mailto:${RECOVERY_EMAIL}?subject=${subject}&body=${body}`, '_blank'); } catch(_) {}
-      return;
     }
-
-    // Etapa 2: define nova senha
-    const newPwd = newPwdInput.value;
-    if (newPwd.length < 4) { showAuthError('authRecoverError', 'A senha deve ter no mínimo 4 caracteres.'); return; }
-    const auth = loadAuth() || { user: 'admin', email: RECOVERY_EMAIL };
-    auth.pwd = await sha256(newPwd);
-    saveAuth(auth);
-    showAuthSuccess('authRecoverSuccess', '<strong>Senha redefinida!</strong> Redirecionando para o login...');
-    setTimeout(() => {
-      showAuthForm('authLoginForm');
-      document.getElementById('authLoginUser').value = auth.user || '';
-      document.getElementById('authLoginPwd').value = '';
-    }, 1500);
   }
 
   function setAuthTab(tab) {
@@ -4196,30 +4223,41 @@
 
   function initAuth() {
     bindAuthEvents();
-    const auth = loadAuth();
-    if (!auth) {
-      // Primeiro uso: aba "Criar conta" pré-selecionada (mas usuário pode escolher Entrar se quiser)
-      setAuthTab('create');
-      showAuthScreen();
-      return;
-    }
-    if (sessionStorage.getItem(SESSION_KEY) === '1') {
-      // Sessão expirou enquanto a aba ficou aberta? força logout
-      if (isSessionExpired()) {
-        sessionStorage.removeItem(SESSION_KEY);
+
+    // Escuta mudanças de autenticação do Supabase (login, logout, refresh de token)
+    sb.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        _currentUser = session.user;
+        // Se era redirecionamento de reset de senha, o evento é PASSWORD_RECOVERY
+        if (event === 'PASSWORD_RECOVERY') {
+          // Usuário chegou pelo link de email — mostra tela de nova senha
+          showApp();
+          if (!appInitialized) { init(); appInitialized = true; }
+          goTo('admin');
+          // Abre automaticamente o formulário de troca de senha
+          setTimeout(() => {
+            document.getElementById('changePwdBtn')?.click();
+          }, 500);
+          return;
+        }
+        startIdleWatcher();
+        initApp();
+      } else {
+        _currentUser = null;
         stopIdleWatcher();
-        setAuthTab('login');
-        document.getElementById('authLoginUser').value = auth.user || '';
         showAuthScreen();
-        return;
+        setAuthTab('login');
       }
-      startIdleWatcher();
-      initApp();
-      return;
-    }
-    setAuthTab('login');
-    document.getElementById('authLoginUser').value = auth.user || '';
-    showAuthScreen();
+    });
+
+    // Verifica sessão já existente (ex: usuário reabriu a aba)
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        showAuthScreen();
+        setAuthTab('login');
+      }
+      // Se há sessão, onAuthStateChange já vai disparar com o evento INITIAL_SESSION
+    });
   }
 
   document.addEventListener('DOMContentLoaded', initAuth);

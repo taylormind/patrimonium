@@ -3,7 +3,7 @@
  * Cache-first com fallback de rede. Bump CACHE_VERSION pra invalidar caches antigos.
  */
 
-const CACHE_VERSION = 'patrono-v8';
+const CACHE_VERSION = 'patrono-v9';
 const PRECACHE_ASSETS = [
   './',
   './index.html',

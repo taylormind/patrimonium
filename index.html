@@ -21,6 +21,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="./supabase/client.js"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -61,8 +64,8 @@
     <form id="authLoginForm" class="auth-form">
       <p class="auth-subtitle">Acesse sua conta para continuar.</p>
       <div class="auth-field">
-        <label>Usuário</label>
-        <input type="text" id="authLoginUser" autocomplete="username" required>
+        <label>Email</label>
+        <input type="email" id="authLoginEmail" autocomplete="email" required placeholder="seu@email.com">
       </div>
       <div class="auth-field">
         <div class="auth-label-row">
@@ -91,17 +94,21 @@
       <button type="submit" class="auth-submit"><i class="fas fa-arrow-right-to-bracket"></i> Entrar</button>
     </form>
 
-    <!-- Create account form (first run) -->
+    <!-- Create account form -->
     <form id="authCreateForm" class="auth-form hidden">
-      <p class="auth-subtitle">Defina suas credenciais para proteger o app.</p>
+      <p class="auth-subtitle">Crie sua conta para começar.</p>
       <div class="auth-field">
-        <label>Usuário</label>
-        <input type="text" id="authCreateUser" autocomplete="username" required>
+        <label>Nome de usuário</label>
+        <input type="text" id="authCreateUser" autocomplete="username" required placeholder="Ex: joaosilva">
       </div>
       <div class="auth-field">
-        <label>Senha (mín. 4 caracteres)</label>
+        <label>Email</label>
+        <input type="email" id="authCreateEmail" autocomplete="email" required placeholder="seu@email.com">
+      </div>
+      <div class="auth-field">
+        <label>Senha (mín. 6 caracteres)</label>
         <div class="auth-pwd-wrap">
-          <input type="password" id="authCreatePwd" autocomplete="new-password" minlength="4" required>
+          <input type="password" id="authCreatePwd" autocomplete="new-password" minlength="6" required>
           <button type="button" class="auth-pwd-toggle" data-target="authCreatePwd" aria-label="Mostrar ou ocultar senha">
             <i class="fas fa-eye"></i>
           </button>
@@ -110,36 +117,33 @@
       <div class="auth-field">
         <label>Confirmar senha</label>
         <div class="auth-pwd-wrap">
-          <input type="password" id="authCreatePwd2" autocomplete="new-password" minlength="4" required>
+          <input type="password" id="authCreatePwd2" autocomplete="new-password" minlength="6" required>
           <button type="button" class="auth-pwd-toggle" data-target="authCreatePwd2" aria-label="Mostrar ou ocultar senha">
             <i class="fas fa-eye"></i>
           </button>
         </div>
       </div>
+      <!-- LGPD: consentimento obrigatório -->
+      <label class="auth-lgpd-check">
+        <input type="checkbox" id="authLgpdConsent" required>
+        <span>Li e aceito a <a href="privacidade.html" target="_blank" class="auth-link-inline">Política de Privacidade</a> e o uso dos meus dados financeiros conforme a LGPD.</span>
+      </label>
       <div id="authCreateError" class="auth-error hidden"></div>
+      <div id="authCreateSuccess" class="auth-success hidden"></div>
       <button type="submit" class="auth-submit"><i class="fas fa-user-plus"></i> Criar conta</button>
     </form>
 
     <!-- Recovery form -->
     <form id="authRecoverForm" class="auth-form hidden">
       <h2 class="auth-title">Recuperar senha</h2>
-      <p class="auth-subtitle">Informe o email cadastrado para receber instruções.</p>
+      <p class="auth-subtitle">Você receberá um link por email para redefinir sua senha.</p>
       <div class="auth-field">
-        <label>Email</label>
-        <input type="email" id="authRecoverEmail" autocomplete="email" required>
-      </div>
-      <div class="auth-field hidden" id="authRecoverNewPwdWrap">
-        <label>Nova senha (mín. 4 caracteres)</label>
-        <div class="auth-pwd-wrap">
-          <input type="password" id="authRecoverNewPwd" autocomplete="new-password" minlength="4">
-          <button type="button" class="auth-pwd-toggle" data-target="authRecoverNewPwd" aria-label="Mostrar ou ocultar senha">
-            <i class="fas fa-eye"></i>
-          </button>
-        </div>
+        <label>Email cadastrado</label>
+        <input type="email" id="authRecoverEmail" autocomplete="email" required placeholder="seu@email.com">
       </div>
       <div id="authRecoverError" class="auth-error hidden"></div>
       <div id="authRecoverSuccess" class="auth-success hidden"></div>
-      <button type="submit" class="auth-submit" id="authRecoverSubmit"><i class="fas fa-paper-plane"></i> Enviar instruções</button>
+      <button type="submit" class="auth-submit" id="authRecoverSubmit"><i class="fas fa-paper-plane"></i> Enviar link de recuperação</button>
       <button type="button" class="auth-link" id="authBackToLoginBtn">← Voltar ao login</button>
     </form>
 
@@ -780,12 +784,8 @@
               <!-- Formulário de troca de senha (oculto por padrão) -->
               <form id="changePwdForm" class="change-pwd-form hidden" autocomplete="off" novalidate>
                 <div class="form-group">
-                  <label class="form-label" for="cpOldPwd">Senha atual</label>
-                  <input type="password" id="cpOldPwd" class="form-input" placeholder="••••••••" autocomplete="current-password">
-                </div>
-                <div class="form-group">
-                  <label class="form-label" for="cpNewPwd">Nova senha</label>
-                  <input type="password" id="cpNewPwd" class="form-input" placeholder="Mín. 4 caracteres" autocomplete="new-password">
+                  <label class="form-label" for="cpNewPwd">Nova senha (mín. 6 caracteres)</label>
+                  <input type="password" id="cpNewPwd" class="form-input" placeholder="••••••••" autocomplete="new-password">
                 </div>
                 <div class="form-group">
                   <label class="form-label" for="cpConfirmPwd">Confirmar nova senha</label>
