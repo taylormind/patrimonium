@@ -200,13 +200,17 @@
   // ──────────────────────────────────────────────
   // STORAGE
   // ──────────────────────────────────────────────
+  // _suppressSync evita loop: loadFromSupabase chama save sem triggerar novo sync
+  let _suppressSync = false;
+
   function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      transactions: state.transactions,
-      categories: state.categories,
-      importHistory: state.importHistory,
+      transactions:    state.transactions,
+      categories:      state.categories,
+      importHistory:   state.importHistory,
       columnLearnings: state.columnLearnings,
     }));
+    if (!_suppressSync) scheduleSyncToSupabase();
   }
 
   function load() {
@@ -227,6 +231,186 @@
         if (cat) state.categories.push(JSON.parse(JSON.stringify(cat)));
       }
     });
+  }
+
+  // ──────────────────────────────────────────────
+  // SUPABASE SYNC (Fase 3)
+  // ──────────────────────────────────────────────
+
+  let _syncTimer  = null;
+  let _isSyncing  = false;
+
+  // Agenda sync com debounce de 3 s — evita chamadas em rajada
+  function scheduleSyncToSupabase() {
+    if (!_currentUser) return;
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(syncStateToSupabase, 3000);
+  }
+
+  // Sync completo: apaga os dados do usuário no banco e re-insere o estado atual.
+  // Delete-then-insert garante que exclusões locais se reflitam na nuvem.
+  // Ordem crítica: transactions (FK) → categories → categories (insert) → transactions (insert)
+  async function syncStateToSupabase() {
+    if (!_currentUser || _isSyncing) return;
+    _isSyncing = true;
+    const uid = _currentUser.id;
+
+    try {
+      // 1. Apaga transações (elas referenciam categories via FK)
+      const { error: delTx } = await sb.from('transactions').delete().eq('user_id', uid);
+      if (delTx) throw delTx;
+
+      // 2. Apaga categorias (agora sem FK pendente)
+      const { error: delCat } = await sb.from('categories').delete().eq('user_id', uid);
+      if (delCat) throw delCat;
+
+      // 3. Insere categorias atuais
+      if (state.categories.length > 0) {
+        const { error: insCat } = await sb.from('categories').insert(
+          state.categories.map(c => ({
+            id:       c.id,
+            user_id:  uid,
+            name:     c.name,
+            emoji:    c.icon    || '📦',
+            color:    c.color   || '#FF6500',
+            type:     c.type    || 'both',
+            budget:   c.budget  || 0,
+            keywords: c.keywords || ''
+          }))
+        );
+        if (insCat) throw insCat;
+      }
+
+      // 4. Insere transações em lotes de 500 (evita limite de payload)
+      for (let i = 0; i < state.transactions.length; i += 500) {
+        const chunk = state.transactions.slice(i, i + 500);
+        const { error: insTx } = await sb.from('transactions').insert(
+          chunk.map(t => ({
+            id:          t.id,
+            user_id:     uid,
+            date:        t.date,
+            description: t.description,
+            amount:      t.amount,
+            type:        t.type,
+            account:     t.account     || 'corrente',
+            category_id: t.category    || null,
+            notes:       t.notes       || null,
+            batch_id:    t.batchId     || null
+          }))
+        );
+        if (insTx) throw insTx;
+      }
+
+      // 5. Import history (upsert por batch_id)
+      if (state.importHistory.length > 0) {
+        await sb.from('import_history').upsert(
+          state.importHistory.map(h => ({
+            user_id:     uid,
+            batch_id:    h.batchId,
+            filename:    h.name,
+            account:     h.account || 'corrente',
+            tx_count:    h.count   || 0,
+            imported_at: h.date
+          })),
+          { onConflict: 'batch_id' }
+        );
+      }
+
+      console.log(`[Patrono] ☁️ Sincronizado — ${state.transactions.length} txs, ${state.categories.length} cats`);
+    } catch (err) {
+      console.warn('[Patrono] ⚠️ Erro no sync:', err?.message || err);
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  // Carrega dados do Supabase e substitui o state (multi-device sync).
+  // Se o banco estiver vazio mas localStorage tiver dados → migração automática.
+  async function loadFromSupabase() {
+    if (!_currentUser) return;
+    const uid = _currentUser.id;
+
+    try {
+      // Verifica se há dados no banco para este usuário
+      const { count, error: countErr } = await sb
+        .from('transactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', uid);
+
+      if (countErr) throw countErr;
+
+      if (count === 0) {
+        // Banco vazio: migra dados locais automaticamente (primeira vez)
+        if (state.transactions.length > 0 || state.categories.length > 1) {
+          toast('Migrando seus dados para a nuvem...', 'info');
+          await syncStateToSupabase();
+          toast(`${state.transactions.length} transações enviadas para a nuvem ✓`, 'success');
+        }
+        return; // state já tem os dados do localStorage
+      }
+
+      // Banco tem dados → carrega tudo (login em outro dispositivo)
+      const [catsRes, txsRes, importsRes] = await Promise.all([
+        sb.from('categories').select('*').eq('user_id', uid),
+        sb.from('transactions').select('*').eq('user_id', uid),
+        sb.from('import_history').select('*').eq('user_id', uid)
+      ]);
+
+      if (catsRes.error) throw catsRes.error;
+      if (txsRes.error)  throw txsRes.error;
+
+      // Mapeia formato Supabase → formato do app
+      state.categories = (catsRes.data || []).map(c => ({
+        id:       c.id,
+        name:     c.name,
+        icon:     c.emoji,
+        color:    c.color,
+        type:     c.type,
+        budget:   parseFloat(c.budget)  || 0,
+        keywords: c.keywords || ''
+      }));
+
+      state.transactions = (txsRes.data || []).map(t => ({
+        id:          t.id,
+        date:        t.date,
+        description: t.description,
+        amount:      parseFloat(t.amount),
+        type:        t.type,
+        account:     t.account,
+        category:    t.category_id,
+        notes:       t.notes,
+        batchId:     t.batch_id
+      }));
+
+      state.importHistory = (importsRes.data || []).map(h => ({
+        batchId:  h.batch_id,
+        name:     h.filename,
+        account:  h.account,
+        count:    h.tx_count,
+        date:     h.imported_at
+      }));
+
+      // Garante categorias de investimento (podem ter sido puladas)
+      ['resgate', 'aplicacao'].forEach(id => {
+        if (!state.categories.find(c => c.id === id)) {
+          const cat = DEFAULT_CATEGORIES.find(c => c.id === id);
+          if (cat) state.categories.push(JSON.parse(JSON.stringify(cat)));
+        }
+      });
+
+      // Atualiza localStorage sem triggerar novo sync
+      _suppressSync = true;
+      save();
+      _suppressSync = false;
+
+      console.log(`[Patrono] ☁️ Carregado do banco — ${state.transactions.length} txs`);
+
+      // Re-renderiza com os dados frescos do banco
+      renderSection(state.currentSection);
+
+    } catch (err) {
+      console.warn('[Patrono] ⚠️ Erro ao carregar do banco:', err?.message || err);
+    }
   }
 
   function savePatrimonio() {
@@ -4217,9 +4401,11 @@
     goTo('dashboard');
   }
 
-  function initApp() {
+  async function initApp() {
     showApp();
     if (!appInitialized) { init(); appInitialized = true; }
+    // Carrega do Supabase após a UI estar pronta (sync multi-device + migração automática)
+    await loadFromSupabase();
   }
 
   function initAuth() {
