@@ -3610,6 +3610,7 @@
       email,
       password: pwd,
       options: {
+        emailRedirectTo: 'https://taylormind.github.io/patrimonium/',
         data: { username, lgpd_consent: true }
       }
     });
