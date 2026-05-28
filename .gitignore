@@ -1,0 +1,12 @@
+# Pastas locais que não devem ir ao GitHub
+backups/
+.claude/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+*.code-workspace

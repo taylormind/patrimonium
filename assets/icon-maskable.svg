@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8534"/>
+      <stop offset="100%" stop-color="#FF4500"/>
+    </linearGradient>
+  </defs>
+  <!-- Full bleed background (sem rounded corners — Android aplica a máscara) -->
+  <rect width="100" height="100" fill="url(#g)"/>
+  <!-- "f" centralizado na safe zone (80% central) -->
+  <g transform="translate(28 24) scale(0.69)">
+    <path d="M38 14 Q26 14 26 28 L26 32 L20 32 L20 40 L26 40 L26 56 L36 56 L36 40 L46 40 L46 32 L36 32 L36 28 Q36 22 42 22 L46 22 L46 14 Z" fill="white"/>
+  </g>
+</svg>

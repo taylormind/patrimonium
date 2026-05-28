@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Patrono — Controle Financeiro Pessoal</title>
+  <meta name="description" content="Controle financeiro pessoal offline-first. Importe extratos, categorize transações e visualize seu fluxo de caixa.">
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#FF6500">
+
+  <!-- iOS / Safari PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Patrono">
+  <link rel="apple-touch-icon" href="./assets/icon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Fredoka:wght@500;600;700&family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ===== PATRONO BRAND SVG DEFS ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="patronoWavePattern" viewBox="0 0 800 200" preserveAspectRatio="none">
+      <path d="M0 100 Q100 60 200 100 T400 100 T600 100 T800 100" stroke="rgba(255,101,0,0.08)" stroke-width="1.5" fill="none"/>
+      <path d="M0 130 Q100 90 200 130 T400 130 T600 130 T800 130" stroke="rgba(255,101,0,0.05)" stroke-width="1.5" fill="none"/>
+      <path d="M0 160 Q100 120 200 160 T400 160 T600 160 T800 160" stroke="rgba(255,101,0,0.04)" stroke-width="1.5" fill="none"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ===== AUTH SCREEN ===== -->
+<div id="authScreen" class="auth-screen">
+  <svg class="auth-wave-bg" viewBox="0 0 800 200" preserveAspectRatio="none" aria-hidden="true"><use href="#patronoWavePattern"/></svg>
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-text">
+        <span class="brand-wordmark auth-wordmark">Patrono</span>
+        <span class="auth-logo-tagline">Controle Financeiro</span>
+      </div>
+    </div>
+
+    <!-- Choose login or signup -->
+    <div class="auth-tabs" id="authTabs">
+      <button type="button" class="auth-tab active" data-tab="login">
+        <i class="fas fa-arrow-right-to-bracket"></i> Entrar
+      </button>
+      <button type="button" class="auth-tab" data-tab="create">
+        <i class="fas fa-user-plus"></i> Criar conta
+      </button>
+    </div>
+
+    <!-- Login form -->
+    <form id="authLoginForm" class="auth-form">
+      <p class="auth-subtitle">Acesse sua conta para continuar.</p>
+      <div class="auth-field">
+        <label>Usuário</label>
+        <input type="text" id="authLoginUser" autocomplete="username" required>
+      </div>
+      <div class="auth-field">
+        <div class="auth-label-row">
+          <label>Senha</label>
+          <button type="button" class="auth-forgot-inline" id="authForgotBtn">Esqueci minha senha</button>
+        </div>
+        <div class="auth-pwd-wrap">
+          <input type="password" id="authLoginPwd" autocomplete="current-password" required>
+          <button type="button" class="auth-pwd-toggle" data-target="authLoginPwd" aria-label="Mostrar ou ocultar senha">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div id="authLoginError" class="auth-error hidden"></div>
+      <div id="authNoAccountHelp" class="auth-no-account hidden">
+        <div class="auth-no-account-icon"><i class="fas fa-mobile-screen-button"></i></div>
+        <div class="auth-no-account-body">
+          <strong>Este dispositivo ainda não tem uma conta</strong>
+          <p>O Patrono guarda os dados localmente em cada navegador. Você tem duas opções:</p>
+          <ul>
+            <li>Criar uma conta nova aqui (aba <b>Criar conta</b>)</li>
+            <li>Restaurar um backup exportado de outro dispositivo</li>
+          </ul>
+        </div>
+      </div>
+      <button type="submit" class="auth-submit"><i class="fas fa-arrow-right-to-bracket"></i> Entrar</button>
+    </form>
+
+    <!-- Create account form (first run) -->
+    <form id="authCreateForm" class="auth-form hidden">
+      <p class="auth-subtitle">Defina suas credenciais para proteger o app.</p>
+      <div class="auth-field">
+        <label>Usuário</label>
+        <input type="text" id="authCreateUser" autocomplete="username" required>
+      </div>
+      <div class="auth-field">
+        <label>Senha (mín. 4 caracteres)</label>
+        <div class="auth-pwd-wrap">
+          <input type="password" id="authCreatePwd" autocomplete="new-password" minlength="4" required>
+          <button type="button" class="auth-pwd-toggle" data-target="authCreatePwd" aria-label="Mostrar ou ocultar senha">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div class="auth-field">
+        <label>Confirmar senha</label>
+        <div class="auth-pwd-wrap">
+          <input type="password" id="authCreatePwd2" autocomplete="new-password" minlength="4" required>
+          <button type="button" class="auth-pwd-toggle" data-target="authCreatePwd2" aria-label="Mostrar ou ocultar senha">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div id="authCreateError" class="auth-error hidden"></div>
+      <button type="submit" class="auth-submit"><i class="fas fa-user-plus"></i> Criar conta</button>
+    </form>
+
+    <!-- Recovery form -->
+    <form id="authRecoverForm" class="auth-form hidden">
+      <h2 class="auth-title">Recuperar senha</h2>
+      <p class="auth-subtitle">Informe o email cadastrado para receber instruções.</p>
+      <div class="auth-field">
+        <label>Email</label>
+        <input type="email" id="authRecoverEmail" autocomplete="email" required>
+      </div>
+      <div class="auth-field hidden" id="authRecoverNewPwdWrap">
+        <label>Nova senha (mín. 4 caracteres)</label>
+        <div class="auth-pwd-wrap">
+          <input type="password" id="authRecoverNewPwd" autocomplete="new-password" minlength="4">
+          <button type="button" class="auth-pwd-toggle" data-target="authRecoverNewPwd" aria-label="Mostrar ou ocultar senha">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div id="authRecoverError" class="auth-error hidden"></div>
+      <div id="authRecoverSuccess" class="auth-success hidden"></div>
+      <button type="submit" class="auth-submit" id="authRecoverSubmit"><i class="fas fa-paper-plane"></i> Enviar instruções</button>
+      <button type="button" class="auth-link" id="authBackToLoginBtn">← Voltar ao login</button>
+    </form>
+
+    <!-- Footer: import backup (migrar de outro dispositivo) -->
+    <div class="auth-restore-footer">
+      <span class="auth-restore-divider"><span>ou</span></span>
+      <button type="button" class="auth-restore-btn" id="authRestoreBtn">
+        <i class="fas fa-file-arrow-up"></i> Restaurar conta de backup
+      </button>
+      <input type="file" id="authRestoreFile" accept=".json,application/json" hidden>
+      <div id="authRestoreMsg" class="auth-restore-msg hidden"></div>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-text">
+        <span class="brand-wordmark sidebar-wordmark">Patrono</span>
+        <span class="logo-tagline">Controle Financeiro</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-section="dashboard">
+        <i class="fas fa-th-large"></i><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-section="transactions">
+        <i class="fas fa-exchange-alt"></i><span>Transações</span>
+      </a>
+      <a class="nav-item" data-section="import">
+        <i class="fas fa-file-import"></i><span>Importar</span>
+      </a>
+      <a class="nav-item" data-section="categories">
+        <i class="fas fa-tags"></i><span>Categorias</span>
+      </a>
+      <a class="nav-item" data-section="budget">
+        <i class="fas fa-bullseye"></i><span>Orçamento</span>
+      </a>
+      <a class="nav-item" data-section="reports">
+        <i class="fas fa-chart-bar"></i><span>Relatórios</span>
+      </a>
+      <a class="nav-item" data-section="faturas">
+        <i class="fas fa-credit-card"></i><span>Faturas</span>
+      </a>
+      <a class="nav-item" data-section="patrimonio">
+        <i class="fas fa-gem"></i><span>Patrimônio</span>
+      </a>
+      <a class="nav-item nav-item-admin" data-section="admin">
+        <i class="fas fa-shield-halved"></i><span>Administração</span>
+      </a>
+    </nav>
+
+    <input type="file" id="backupFileInput" accept=".json" hidden>
+  </aside>
+
+  <!-- SIDEBAR BACKDROP (mobile) -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+      <div class="topbar-title" id="pageTitle">Dashboard</div>
+      <div class="topbar-actions">
+        <button class="btn-topbar-icon" id="refreshBtn" title="Atualizar sistema (F5)">
+          <i class="fas fa-rotate-right"></i>
+        </button>
+        <button class="btn-topbar-icon" id="openThemeBtn" title="Personalizar tema">
+          <i class="fas fa-palette"></i>
+        </button>
+        <button class="btn-primary" id="addTransactionBtn">
+          <i class="fas fa-plus"></i><span>Nova Transação</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="sections-container">
+
+      <!-- ===== DASHBOARD ===== -->
+      <section id="section-dashboard" class="section active">
+        <div class="dash-period-bar">
+          <div class="dash-period-left">
+            <div class="tab-group" id="dashPeriodTabs">
+              <button class="tab-btn active" data-period="month">Este Mês</button>
+              <button class="tab-btn" data-period="3m">3 Meses</button>
+              <button class="tab-btn" data-period="6m">6 Meses</button>
+              <button class="tab-btn" data-period="12m">12 Meses</button>
+              <button class="tab-btn" data-period="custom"><i class="fas fa-calendar-days"></i> Personalizado</button>
+            </div>
+            <div class="dash-custom-range hidden" id="dashCustomRange">
+              <input type="date" id="dashCustomFrom" title="Data inicial">
+              <span class="filter-sep">até</span>
+              <input type="date" id="dashCustomTo" title="Data final">
+            </div>
+          </div>
+          <div class="dash-period-right">
+            <label class="toggle-label dash-invest-toggle" title="Exclui Resgate e Aplicação de todos os cálculos do dashboard">
+              <input type="checkbox" id="dashHideInvest">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Sem resgates / aplicações</span>
+            </label>
+            <span class="dash-period-label" id="dashPeriodLabel"></span>
+          </div>
+        </div>
+        <div class="summary-cards">
+          <div class="summary-card card-balance">
+            <div class="card-icon-wrap"><i class="fas fa-wallet"></i></div>
+            <div class="card-body">
+              <span class="card-label">Saldo Atual</span>
+              <span class="card-value" id="totalBalance">R$ 0,00</span>
+              <span class="card-sub" id="balanceSub">acumulado total</span>
+            </div>
+            <span class="info-btn" data-tip="Soma de todas as receitas menos todas as despesas do histórico completo. Não é afetado pelo período selecionado acima."></span>
+          </div>
+          <div class="summary-card card-income">
+            <div class="card-icon-wrap"><i class="fas fa-arrow-trend-up"></i></div>
+            <div class="card-body">
+              <span class="card-label">Receitas do Mês</span>
+              <span class="card-value" id="monthIncome">R$ 0,00</span>
+              <span class="card-sub" id="incomeSub">0 lançamentos</span>
+            </div>
+            <span class="info-btn" data-tip="Total de entradas (receitas) no período selecionado. Inclui apenas transações do tipo Receita."></span>
+          </div>
+          <div class="summary-card card-expense">
+            <div class="card-icon-wrap"><i class="fas fa-arrow-trend-down"></i></div>
+            <div class="card-body">
+              <span class="card-label">Despesas do Mês</span>
+              <span class="card-value" id="monthExpense">R$ 0,00</span>
+              <span class="card-sub" id="expenseSub">0 lançamentos</span>
+            </div>
+            <span class="info-btn" data-tip="Total de saídas (despesas) no período selecionado. Inclui apenas transações do tipo Despesa."></span>
+          </div>
+          <div class="summary-card card-savings">
+            <div class="card-icon-wrap"><i class="fas fa-piggy-bank"></i></div>
+            <div class="card-body">
+              <span class="card-label">Resultado do Mês</span>
+              <span class="card-value" id="monthResult">R$ 0,00</span>
+              <span class="card-sub" id="savingsRate">0% de economia</span>
+            </div>
+            <span class="info-btn" data-tip="Receitas menos despesas no período. Positivo = economia. O percentual indica quanto das receitas foi poupado (taxa de poupança)."></span>
+          </div>
+        </div>
+
+        <div class="charts-row charts-row-full">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Fluxo de Caixa — 12 Meses<span class="info-btn" data-tip="Evolução mensal comparando receitas e despesas. Sempre exibe os últimos 12 meses a partir do mês visualizado — independente do período selecionado."></span></h3>
+              <div class="chart-legend">
+                <span class="legend-dot" style="background:#00D4A3"></span><span>Receitas</span>
+                <span class="legend-dot" style="background:#FF4757; margin-left:16px"></span><span>Despesas</span>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="cashflowChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="charts-row charts-row-donuts">
+          <div class="chart-card">
+            <div class="chart-header"><h3>Despesas por Categoria<span class="info-btn" data-tip="Distribuição percentual das despesas por categoria no período selecionado. Exibe as 8 categorias com maior gasto. Exclui categorias de receita."></span></h3></div>
+            <div class="donut-content">
+              <div class="chart-wrap donut-wrap"><canvas id="categoryChart"></canvas></div>
+              <div id="categoryChartLegend" class="donut-legend"></div>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-header"><h3>Receitas por Categoria<span class="info-btn" data-tip="Distribuição percentual das receitas por categoria no período selecionado. Exibe as 8 categorias com maior entrada. Exclui resgates."></span></h3></div>
+            <div class="donut-content">
+              <div class="chart-wrap donut-wrap"><canvas id="incomeCatChart"></canvas></div>
+              <div id="incomeCatChartLegend" class="donut-legend"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-bottom">
+          <div class="dash-panel">
+            <div class="panel-header">
+              <h3>Últimas Transações<span class="info-btn" data-tip="As 8 transações mais recentes do histórico completo, independente do período selecionado."></span></h3>
+              <button class="btn-link" data-section="transactions">Ver todas <i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div id="recentList" class="mini-tx-list"></div>
+          </div>
+          <div class="dash-panel">
+            <div class="panel-header">
+              <h3>Orçamento<span class="info-btn" data-tip="Progresso do orçamento mensal por categoria. Verde = dentro do limite, Amarelo = acima de 80%, Vermelho = limite ultrapassado. Sempre reflete o mês atual."></span></h3>
+              <button class="btn-link" data-section="budget">Gerenciar <i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div id="budgetMiniList" class="budget-mini-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== TRANSAÇÕES ===== -->
+      <section id="section-transactions" class="section">
+        <div class="section-toolbar">
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" id="searchTransactions" placeholder="Buscar por descrição...">
+          </div>
+          <div class="filter-group">
+            <select id="filterType">
+              <option value="">Todos os tipos</option>
+              <option value="income">Receitas</option>
+              <option value="expense">Despesas</option>
+            </select>
+            <select id="filterCategory"><option value="">Todas as categorias</option></select>
+            <input type="date" id="filterDateFrom" title="De">
+            <span class="filter-sep">até</span>
+            <input type="date" id="filterDateTo" title="Até">
+          </div>
+          <button class="btn-outline" id="exportTxBtn"><i class="fas fa-download"></i> CSV</button>
+          <button class="btn-outline btn-autocat" id="autoCatPageBtn" title="Categoriza as transações desta página com base nos padrões encontrados nas demais páginas">
+            <i class="fas fa-wand-magic-sparkles"></i> Categorizar página
+          </button>
+        </div>
+
+        <div class="table-top-bar">
+          <span class="tx-count-top" id="txCountTop">0 transações</span>
+          <div class="pagination" id="txPaginationTop"></div>
+        </div>
+
+        <div class="table-wrapper">
+          <table class="data-table" id="txTable">
+            <thead>
+              <tr>
+                <th class="sortable" data-col="date">Data <i class="fas fa-sort"></i></th>
+                <th class="sortable" data-col="description">Descrição <i class="fas fa-sort"></i></th>
+                <th class="sortable" data-col="category">Categoria <i class="fas fa-sort"></i></th>
+                <th>Conta</th>
+                <th class="sortable" data-col="amount">Valor <i class="fas fa-sort"></i></th>
+                <th class="col-actions">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="txBody"></tbody>
+          </table>
+          <div id="txEmpty" class="empty-state hidden">
+            <i class="fas fa-receipt"></i>
+            <p>Nenhuma transação encontrada</p>
+            <span>Adicione manualmente ou importe um extrato</span>
+          </div>
+        </div>
+
+        <div class="table-footer">
+          <span id="txCount">0 transações</span>
+          <div class="pagination" id="txPagination"></div>
+        </div>
+      </section>
+
+      <!-- ===== IMPORTAR ===== -->
+      <section id="section-import" class="section">
+        <div id="importQueuePanel" class="import-queue-panel hidden"></div>
+
+        <div class="import-layout">
+          <div class="import-dropzone" id="dropzone">
+            <div class="dropzone-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <h2>Arraste e solte aqui</h2>
+            <p>Suporte para <strong>CSV</strong>, <strong>XLSX</strong> e <strong>OFX/QFX</strong></p>
+            <p class="hint">Extratos da maioria dos bancos · <strong>arraste vários de uma vez</strong></p>
+            <button class="btn-primary" id="selectFileBtn"><i class="fas fa-folder-open"></i> Selecionar Arquivo(s)</button>
+            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.ofx,.qfx" multiple hidden>
+          </div>
+
+          <div id="importPreview" class="import-preview hidden">
+            <div class="import-file-info">
+              <i class="fas fa-file-alt file-icon-big"></i>
+              <div>
+                <div class="file-name-label" id="importFileName">arquivo.csv</div>
+                <div class="file-rows-label" id="importRowCount">0 linhas detectadas</div>
+              </div>
+              <button class="btn-icon-sm" id="removeFileBtn" title="Remover"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="mapping-section">
+              <h3>Mapeamento de Colunas</h3>
+              <p>Associe as colunas do arquivo com os campos do sistema</p>
+              <div id="mappingGrid" class="mapping-grid"></div>
+            </div>
+
+            <div class="import-options">
+              <!-- Seletor de conta — campo mais importante, fica no topo -->
+              <div class="import-account-row">
+                <i class="fas fa-wallet"></i>
+                <label for="importAccount">Conta de origem:</label>
+                <select id="importAccount" class="import-acc-select">
+                  <option value="corrente">Conta Corrente</option>
+                  <option value="cartao">Cartão de Crédito</option>
+                  <option value="poupanca">Poupança</option>
+                  <option value="dinheiro">Dinheiro / Espécie</option>
+                  <option value="investimento">Investimento</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" id="optSkipDup" checked>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span>Ignorar transações duplicadas</span>
+              </label>
+              <label class="toggle-label">
+                <input type="checkbox" id="optAutoCateg" checked>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span>Categorização automática por palavras-chave</span>
+              </label>
+              <label class="toggle-label">
+                <input type="checkbox" id="optInvertSign">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span>Inverter sinal dos valores (débito como positivo)</span>
+              </label>
+            </div>
+
+            <div id="previewTableWrap" class="preview-table-wrap">
+              <h4>Prévia dos dados <span id="previewCount"></span></h4>
+              <div id="previewTable"></div>
+            </div>
+
+            <div class="import-actions">
+              <button class="btn-outline" id="cancelImportBtn">Cancelar</button>
+              <button class="btn-primary" id="confirmImportBtn">
+                <i class="fas fa-check"></i> Importar Transações
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="import-history-section">
+          <h3>Histórico de Importações</h3>
+          <div id="importHistory" class="import-history-list">
+            <div class="empty-state"><i class="fas fa-history"></i><p>Nenhuma importação realizada</p></div>
+          </div>
+        </div>
+
+        <div class="learned-section">
+          <div class="learned-header">
+            <div>
+              <h3>Colunas Aprendidas</h3>
+              <p class="learned-hint">O sistema aprende os nomes das colunas dos seus extratos automaticamente a cada importação</p>
+            </div>
+            <button class="btn-outline btn-xs" id="clearLearnedBtn">Limpar tudo</button>
+          </div>
+          <div id="learnedList" class="learned-list"></div>
+        </div>
+      </section>
+
+      <!-- ===== CATEGORIAS ===== -->
+      <section id="section-categories" class="section">
+        <div class="section-toolbar">
+          <div class="tab-group" id="catFilterTabs">
+            <button class="tab-btn active" data-filter="all">Todas</button>
+            <button class="tab-btn" data-filter="expense">Despesas</button>
+            <button class="tab-btn" data-filter="income">Receitas</button>
+          </div>
+          <button class="btn-primary" id="addCatBtn"><i class="fas fa-plus"></i> Nova Categoria</button>
+        </div>
+        <div id="catGrid" class="categories-grid"></div>
+      </section>
+
+      <!-- ===== ORÇAMENTO ===== -->
+      <section id="section-budget" class="section">
+        <div class="dash-period-bar">
+          <div class="dash-period-left">
+            <div class="tab-group" id="budgetPeriodTabs">
+              <button class="tab-btn active" data-period="month">Este Mês</button>
+              <button class="tab-btn" data-period="3m">3 Meses</button>
+              <button class="tab-btn" data-period="6m">6 Meses</button>
+              <button class="tab-btn" data-period="12m">12 Meses</button>
+              <button class="tab-btn" data-period="custom"><i class="fas fa-calendar-days"></i> Personalizado</button>
+            </div>
+            <div class="dash-custom-range hidden" id="budgetCustomRange">
+              <input type="date" id="budgetCustomFrom" title="Data inicial">
+              <span class="filter-sep">até</span>
+              <input type="date" id="budgetCustomTo" title="Data final">
+            </div>
+          </div>
+          <div class="dash-period-right">
+            <label class="toggle-label dash-invest-toggle" title="Exclui Resgate e Aplicação de todos os cálculos do orçamento">
+              <input type="checkbox" id="budgetHideInvest">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Sem resgates / aplicações</span>
+            </label>
+            <span class="dash-period-label" id="budgetPeriodLabel"></span>
+          </div>
+        </div>
+        <div class="budget-header-bar">
+          <div class="budget-stat-card">
+            <span class="bsc-label">Total Orçado</span>
+            <span class="bsc-value" id="budgetTotal">R$ 0,00</span>
+          </div>
+          <div class="budget-stat-card danger">
+            <span class="bsc-label">Total Gasto</span>
+            <span class="bsc-value" id="budgetSpent">R$ 0,00</span>
+          </div>
+          <div class="budget-stat-card success">
+            <span class="bsc-label">Disponível</span>
+            <span class="bsc-value" id="budgetAvail">R$ 0,00</span>
+          </div>
+        </div>
+        <div id="budgetCards" class="budget-cards-grid"></div>
+        <div id="budgetEmpty" class="empty-state hidden">
+          <i class="fas fa-bullseye"></i>
+          <p>Nenhuma categoria de despesa cadastrada</p>
+          <span>Crie categorias de despesa em "Categorias" para gerenciá-las aqui</span>
+        </div>
+      </section>
+
+      <!-- ===== RELATÓRIOS ===== -->
+      <section id="section-reports" class="section">
+        <div class="dash-period-bar">
+          <div class="dash-period-left">
+            <div class="tab-group" id="reportPeriodTabs">
+              <button class="tab-btn" data-period="month">Este Mês</button>
+              <button class="tab-btn" data-period="3m">3 Meses</button>
+              <button class="tab-btn active" data-period="6m">6 Meses</button>
+              <button class="tab-btn" data-period="12m">12 Meses</button>
+              <button class="tab-btn" data-period="custom"><i class="fas fa-calendar-days"></i> Personalizado</button>
+            </div>
+            <div class="dash-custom-range hidden" id="reportCustomRange">
+              <input type="date" id="reportCustomFrom" title="Data inicial">
+              <span class="filter-sep">até</span>
+              <input type="date" id="reportCustomTo" title="Data final">
+            </div>
+          </div>
+          <div class="dash-period-right">
+            <button class="btn-outline" id="exportReportBtn"><i class="fas fa-download"></i> Exportar CSV</button>
+            <span class="dash-period-label" id="reportPeriodLabel"></span>
+          </div>
+        </div>
+        <div class="reports-grid">
+          <div class="report-card wide">
+            <h3>Receitas vs Despesas por Mês</h3>
+            <div class="chart-wrap"><canvas id="rptIncExpChart"></canvas></div>
+          </div>
+          <div class="report-card">
+            <h3>Distribuição de Despesas</h3>
+            <div class="chart-wrap"><canvas id="rptDistChart"></canvas></div>
+          </div>
+          <div class="report-card">
+            <h3>Evolução do Saldo</h3>
+            <div class="chart-wrap"><canvas id="rptBalanceChart"></canvas></div>
+          </div>
+          <div class="report-card wide">
+            <h3>Top Categorias de Despesa</h3>
+            <div class="chart-wrap"><canvas id="rptCatTrendChart"></canvas></div>
+          </div>
+
+          <!-- Painel Débito vs Crédito -->
+          <div class="report-card wide rpt-pay-panel">
+            <h3>Débito vs Crédito</h3>
+            <div class="rpt-pay-inner">
+              <div class="rpt-pay-stats">
+                <div class="rpt-pay-stat-card rpt-debit">
+                  <i class="fas fa-building-columns"></i>
+                  <span class="rpt-pay-stat-label">Débito / Espécie</span>
+                  <span class="rpt-pay-stat-val" id="rptDebitAmt">—</span>
+                  <span class="rpt-pay-stat-pct" id="rptDebitPct"></span>
+                </div>
+                <div class="rpt-pay-stat-card rpt-credit">
+                  <i class="fas fa-credit-card"></i>
+                  <span class="rpt-pay-stat-label">Cartão de Crédito</span>
+                  <span class="rpt-pay-stat-val" id="rptCreditAmt">—</span>
+                  <span class="rpt-pay-stat-pct" id="rptCreditPct"></span>
+                </div>
+              </div>
+              <div class="rpt-pay-chart-wrap">
+                <canvas id="rptPaymentChart"></canvas>
+              </div>
+              <div class="rpt-pay-breakdown" id="rptPayBreakdown"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== FATURAS ===== -->
+      <section id="section-faturas" class="section">
+
+        <!-- Navegação de mês -->
+        <div class="fat-nav-bar">
+          <button id="fatPrevBtn" class="fat-nav-btn" title="Mês anterior">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <div class="fat-month-display">
+            <span id="fatMonthLabel">—</span>
+            <span class="fat-status-badge" id="fatStatusBadge">Aberta</span>
+          </div>
+          <button id="fatNextBtn" class="fat-nav-btn" title="Próximo mês">
+            <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+
+        <!-- Resumo da fatura -->
+        <div class="fat-summary-grid" id="fatSummaryGrid">
+          <div class="fat-summary-card fat-card-total">
+            <div class="fat-sc-icon"><i class="fas fa-credit-card"></i></div>
+            <div class="fat-sc-body">
+              <span class="fat-sc-label">Total da Fatura</span>
+              <span class="fat-sc-value" id="fatTotal">R$ 0,00</span>
+            </div>
+          </div>
+          <div class="fat-summary-card">
+            <div class="fat-sc-icon"><i class="fas fa-receipt"></i></div>
+            <div class="fat-sc-body">
+              <span class="fat-sc-label">Lançamentos</span>
+              <span class="fat-sc-value" id="fatCount">0</span>
+            </div>
+          </div>
+          <div class="fat-summary-card">
+            <div class="fat-sc-icon"><i class="fas fa-tag"></i></div>
+            <div class="fat-sc-body">
+              <span class="fat-sc-label">Maior Categoria</span>
+              <span class="fat-sc-value fat-sc-value-sm" id="fatTopCat">—</span>
+            </div>
+          </div>
+          <div class="fat-summary-card">
+            <div class="fat-sc-icon"><i class="fas fa-store"></i></div>
+            <div class="fat-sc-body">
+              <span class="fat-sc-label">Maior Gasto</span>
+              <span class="fat-sc-value fat-sc-value-sm" id="fatTopDesc">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráfico + Lista -->
+        <div class="fat-charts-row" id="fatChartsRow">
+          <div class="chart-card">
+            <div class="chart-header"><h3>Por Categoria</h3></div>
+            <div class="fat-donut-body">
+              <div class="chart-wrap fat-donut-wrap"><canvas id="fatCatChart"></canvas></div>
+              <div id="fatCatLegend" class="fat-legend"></div>
+            </div>
+          </div>
+          <div class="chart-card fat-txlist-card">
+            <div class="chart-header">
+              <h3>Lançamentos</h3>
+              <span id="fatTxCountBadge" class="fat-count-badge"></span>
+            </div>
+            <div id="fatTxList" class="fat-tx-list"></div>
+          </div>
+        </div>
+
+        <!-- Estado vazio -->
+        <div id="fatEmptyState" class="fat-empty hidden">
+          <i class="fas fa-credit-card"></i>
+          <p>Nenhum lançamento no cartão de crédito</p>
+          <span>Transações com conta "Cartão de Crédito" aparecem aqui agrupadas por mês</span>
+        </div>
+
+        <!-- ── Comparativo Mensal por Categoria ── -->
+        <div class="fat-compare-section">
+          <div class="fat-compare-hdr">
+            <div class="fat-compare-hdr-left">
+              <i class="fas fa-table-columns"></i>
+              <h3>Comparativo Mensal</h3>
+            </div>
+            <div class="fat-compare-controls">
+              <select id="fatComparePeriod" class="fat-ctrl-select">
+                <option value="3">3 meses</option>
+                <option value="6" selected>6 meses</option>
+                <option value="12">12 meses</option>
+              </select>
+              <select id="fatCompareAccount" class="fat-ctrl-select">
+                <option value="cartao">Só cartão</option>
+                <option value="all">Todas as contas</option>
+              </select>
+            </div>
+          </div>
+          <div id="fatCompareTable" class="fat-compare-wrap"></div>
+        </div>
+
+      </section>
+
+      <!-- ===== PATRIMÔNIO ===== -->
+      <section id="section-patrimonio" class="section">
+
+        <!-- Overview: total + donut -->
+        <div class="pat-overview">
+          <div class="pat-total-block">
+            <span class="pat-total-label">Patrimônio Total</span>
+            <span class="pat-total-value" id="patTotalValue">R$ 0,00</span>
+            <div class="pat-liq-groups" id="patLiqGroups"></div>
+            <div class="pat-liq-bar-wrap">
+              <div class="pat-liq-bar" id="patLiqBar"></div>
+            </div>
+          </div>
+          <div class="chart-card pat-donut-card">
+            <div class="chart-header"><h3>Composição dos Ativos</h3></div>
+            <div class="donut-content">
+              <div class="chart-wrap donut-wrap"><canvas id="patCompositionChart"></canvas></div>
+              <div id="patCompositionLegend" class="donut-legend"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Assets toolbar + grid -->
+        <div class="section-toolbar" style="margin-bottom:16px">
+          <h3 style="margin:0;color:var(--text-primary);font-size:16px">Seus Ativos</h3>
+          <button class="btn-primary" id="addAssetBtn">
+            <i class="fas fa-plus"></i><span>Novo Ativo</span>
+          </button>
+        </div>
+        <div id="patAssetsGrid" class="pat-assets-grid"></div>
+
+      </section>
+
+      <!-- ===== ADMINISTRAÇÃO ===== -->
+      <section id="section-admin" class="section">
+        <div class="admin-grid">
+
+          <!-- Conta -->
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <div class="admin-card-icon"><i class="fas fa-user-circle"></i></div>
+              <div>
+                <h3>Conta</h3>
+                <p class="admin-card-sub">Sessão atual</p>
+              </div>
+            </div>
+            <div class="admin-card-body">
+              <div class="admin-info-row">
+                <span class="admin-info-label">Usuário</span>
+                <span class="admin-info-value" id="adminUserName">—</span>
+              </div>
+              <div class="admin-info-row">
+                <span class="admin-info-label">Email de recuperação</span>
+                <span class="admin-info-value" id="adminUserEmail">—</span>
+              </div>
+              <div class="admin-info-row">
+                <span class="admin-info-label">Conta criada em</span>
+                <span class="admin-info-value" id="adminUserCreated">—</span>
+              </div>
+              <div class="admin-action-divider"></div>
+              <button class="btn-outline" id="changePwdBtn">
+                <i class="fas fa-key"></i> Trocar senha
+              </button>
+
+              <!-- Formulário de troca de senha (oculto por padrão) -->
+              <form id="changePwdForm" class="change-pwd-form hidden" autocomplete="off" novalidate>
+                <div class="form-group">
+                  <label class="form-label" for="cpOldPwd">Senha atual</label>
+                  <input type="password" id="cpOldPwd" class="form-input" placeholder="••••••••" autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="cpNewPwd">Nova senha</label>
+                  <input type="password" id="cpNewPwd" class="form-input" placeholder="Mín. 4 caracteres" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="cpConfirmPwd">Confirmar nova senha</label>
+                  <input type="password" id="cpConfirmPwd" class="form-input" placeholder="Repita a nova senha" autocomplete="new-password">
+                </div>
+                <div id="changePwdMsg" class="change-pwd-msg hidden"></div>
+                <div class="change-pwd-actions">
+                  <button type="submit" class="btn-primary change-pwd-submit">
+                    <i class="fas fa-check"></i> Salvar
+                  </button>
+                  <button type="button" class="btn-outline" id="cancelPwdBtn">Cancelar</button>
+                </div>
+              </form>
+
+              <div class="admin-action-divider"></div>
+              <button class="btn-outline admin-logout-btn" id="logoutBtn">
+                <i class="fas fa-arrow-right-from-bracket"></i> Sair do app
+              </button>
+              <p class="admin-help">Encerra sua sessão. Você precisará entrar com usuário e senha novamente.</p>
+            </div>
+          </div>
+
+          <!-- Exportação -->
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <div class="admin-card-icon"><i class="fas fa-file-export"></i></div>
+              <div>
+                <h3>Exportação</h3>
+                <p class="admin-card-sub">Baixe seus dados</p>
+              </div>
+            </div>
+            <div class="admin-card-body">
+              <button class="btn-outline" id="exportBackupBtn">
+                <i class="fas fa-database"></i> Exportar JSON (backup)
+              </button>
+              <p class="admin-help">Snapshot completo de transações, categorias, configurações e histórico.</p>
+              <button class="btn-outline" id="exportDataBtn">
+                <i class="fas fa-file-csv"></i> Exportar CSV
+              </button>
+              <p class="admin-help">Todas as transações em formato CSV para planilhas.</p>
+            </div>
+          </div>
+
+          <!-- Backups -->
+          <div class="admin-card admin-card-wide">
+            <div class="admin-card-header">
+              <div class="admin-card-icon"><i class="fas fa-clock-rotate-left"></i></div>
+              <div>
+                <h3>Backups</h3>
+                <p class="admin-card-sub">Restaure versões anteriores dos seus dados</p>
+              </div>
+            </div>
+            <div class="admin-card-body">
+              <div class="backup-panel-list" id="backupPanelList"></div>
+            </div>
+          </div>
+
+          <!-- Zona de perigo -->
+          <div class="admin-card admin-card-danger admin-card-wide">
+            <div class="admin-card-header">
+              <div class="admin-card-icon"><i class="fas fa-triangle-exclamation"></i></div>
+              <div>
+                <h3>Zona de perigo</h3>
+                <p class="admin-card-sub">Ações irreversíveis</p>
+              </div>
+            </div>
+            <div class="admin-card-body">
+              <button class="btn-danger" id="clearDataBtn">
+                <i class="fas fa-trash"></i> Apagar todos os dados
+              </button>
+              <p class="admin-help">Remove todas as transações, categorias, histórico e backups. Faça um Exportar JSON antes para garantir.</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div><!-- /sections-container -->
+  </main>
+</div><!-- /app -->
+
+<!-- ===== MODAL TRANSAÇÃO ===== -->
+<div class="modal-overlay hidden" id="txModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="txModalTitle">Nova Transação</h2>
+      <button class="modal-close" id="closeTxModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="type-toggle" id="txTypeToggle">
+        <button class="type-btn active" data-type="expense"><i class="fas fa-minus"></i> Despesa</button>
+        <button class="type-btn" data-type="income"><i class="fas fa-plus"></i> Receita</button>
+      </div>
+      <div class="form-group full">
+        <label>Descrição *</label>
+        <input type="text" id="txDesc" placeholder="Ex: Supermercado Pão de Açúcar">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Valor (R$) *</label>
+          <input type="number" id="txAmt" placeholder="0,00" step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>Data *</label>
+          <input type="date" id="txDate">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="txCat"><option value="">Sem categoria</option></select>
+        </div>
+        <div class="form-group">
+          <label>Conta</label>
+          <select id="txAcc">
+            <option value="corrente">Conta Corrente</option>
+            <option value="poupanca">Poupança</option>
+            <option value="cartao">Cartão de Crédito</option>
+            <option value="dinheiro">Dinheiro</option>
+            <option value="investimento">Investimento</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group full">
+        <label>Observações</label>
+        <textarea id="txNotes" rows="2" placeholder="Detalhes opcionais..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" id="cancelTxBtn">Cancelar</button>
+      <button class="btn-primary" id="saveTxBtn"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL CATEGORIA ===== -->
+<div class="modal-overlay hidden" id="catModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="catModalTitle">Nova Categoria</h2>
+      <button class="modal-close" id="closeCatModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group full">
+        <label>Nome *</label>
+        <input type="text" id="catName" placeholder="Ex: Alimentação">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="catType">
+            <option value="expense">Despesa</option>
+            <option value="income">Receita</option>
+            <option value="both">Ambos</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Orçamento Mensal (R$)</label>
+          <input type="number" id="catBudget" placeholder="0 = sem limite" min="0" step="0.01">
+        </div>
+      </div>
+      <div class="form-group full">
+        <label>Ícone</label>
+        <div id="emojiPicker" class="emoji-picker"></div>
+        <input type="text" id="catIconInput" class="hidden-but-readable" readonly>
+      </div>
+      <div class="form-group full">
+        <label>Cor</label>
+        <div id="colorPicker" class="color-picker"></div>
+      </div>
+      <div class="form-group full">
+        <label>Palavras-chave (categorização automática)</label>
+        <input type="text" id="catKeywords" placeholder="Ex: mercado, supermercado, ifood">
+        <small>Separe por vírgula — usadas para categorizar importações automaticamente</small>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" id="cancelCatBtn">Cancelar</button>
+      <button class="btn-primary" id="saveCatBtn"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL CONFIRMAÇÃO ===== -->
+<div class="modal-overlay hidden" id="confirmModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2 id="confirmTitle">Confirmar</h2>
+    </div>
+    <div class="modal-body">
+      <p id="confirmMsg">Tem certeza?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" id="confirmCancelBtn">Cancelar</button>
+      <button class="btn-danger" id="confirmOkBtn">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- THEME MODAL -->
+<div id="themeModal" class="theme-modal hidden">
+  <div class="theme-overlay" id="themeOverlay"></div>
+  <div class="theme-panel">
+    <div class="theme-header">
+      <h3><i class="fas fa-palette"></i>Personalizar Tema</h3>
+      <button class="theme-close-btn" id="themeCloseBtn">×</button>
+    </div>
+    <div class="theme-panel-body">
+      <div class="theme-presets-section">
+        <div class="theme-section-title">Presets</div>
+        <div class="theme-presets">
+          <button class="theme-preset-btn" data-preset="contrast">Contraste Alto</button>
+          <button class="theme-preset-btn" data-preset="warm">Warm Dark</button>
+          <button class="theme-preset-btn" data-preset="ocean">Ocean</button>
+          <button class="theme-preset-btn" data-preset="midnight">Midnight</button>
+        </div>
+      </div>
+      <div id="themeColorRows"></div>
+    </div>
+    <div class="theme-panel-footer">
+      <button class="btn-reset" id="themeResetBtn">Resetar</button>
+      <button class="btn-save" id="themeSaveBtn">Salvar tema</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: ATUALIZAR ATIVO ===== -->
+<div class="modal-overlay hidden" id="assetUpdateModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2 id="assetUpdateTitle">Atualizar Ativo</h2>
+      <button class="modal-close" id="closeAssetUpdateModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group full">
+        <label>Valor atual (R$) *</label>
+        <input type="number" id="assetUpdateValue" placeholder="0,00" step="0.01" min="0">
+      </div>
+      <div class="form-group full">
+        <label>Observação <span style="color:var(--text-muted)">(opcional)</span></label>
+        <input type="text" id="assetUpdateNote" placeholder="Ex: Avaliação por corretor, valorização...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" id="cancelAssetUpdateBtn">Cancelar</button>
+      <button class="btn-primary" id="saveAssetUpdateBtn"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: CRIAR / EDITAR ATIVO ===== -->
+<div class="modal-overlay hidden" id="assetEditModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="assetEditTitle">Novo Ativo</h2>
+      <button class="modal-close" id="closeAssetEditModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group full">
+        <label>Nome *</label>
+        <input type="text" id="assetEditName" placeholder="Ex: Apartamento, Criptomoedas, Moto...">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Liquidez</label>
+          <select id="assetEditLiquidity">
+            <option value="liquid">🟢 Líquido</option>
+            <option value="semi">🟡 Semi-líquido</option>
+            <option value="physical" selected>🟠 Físico</option>
+            <option value="business">🟣 Negócios</option>
+          </select>
+        </div>
+        <div class="form-group" id="assetEditValueWrap">
+          <label>Valor inicial (R$)</label>
+          <input type="number" id="assetEditValue" placeholder="0,00" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-group full">
+        <label>Ícone</label>
+        <div id="assetEmojiPicker" class="emoji-picker"></div>
+        <input type="text" id="assetIconInput" class="hidden-but-readable" readonly>
+      </div>
+      <div class="form-group full">
+        <label>Cor</label>
+        <div id="assetColorPicker" class="color-picker"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" id="cancelAssetEditBtn">Cancelar</button>
+      <button class="btn-primary" id="saveAssetEditBtn"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== AI INSIGHTS CHAT ====== -->
+<button id="chatFab" class="chat-fab hidden" title="Insights — pergunte sobre suas finanças" aria-label="Abrir chat de insights">
+  <i class="fas fa-comments"></i>
+  <span class="chat-fab-pulse"></span>
+</button>
+
+<div id="chatBackdrop" class="chat-backdrop hidden"></div>
+
+<aside id="chatPanel" class="chat-panel hidden" aria-hidden="true" aria-label="Chat de insights">
+  <header class="chat-header">
+    <div class="chat-header-info">
+      <div class="chat-avatar"><i class="fas fa-wand-magic-sparkles"></i></div>
+      <div class="chat-header-text">
+        <div class="chat-title">Insights Patrono</div>
+        <div class="chat-subtitle">Pergunte sobre suas finanças</div>
+      </div>
+    </div>
+    <button class="chat-close" id="chatCloseBtn" aria-label="Fechar"><i class="fas fa-times"></i></button>
+  </header>
+
+  <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+
+  <div class="chat-suggestions" id="chatSuggestions"></div>
+
+  <form class="chat-input-bar" id="chatForm" autocomplete="off">
+    <input type="text" id="chatInput" placeholder="Ex: Quanto gastei em alimentação?" autocomplete="off" maxlength="200">
+    <button type="submit" class="chat-send" aria-label="Enviar pergunta">
+      <i class="fas fa-paper-plane"></i>
+    </button>
+  </form>
+</aside>
+
+<!-- TOAST -->
+<div id="toastContainer" class="toast-container"></div>
+
+<script src="js/app.js"></script>
+<script>
+  // Registro do Service Worker (PWA)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .catch(err => console.warn('SW registration failed:', err));
+    });
+  }
+</script>
+</body>
+</html>
